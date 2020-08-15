@@ -11,18 +11,18 @@ enum class Browser
 
 class Worker
 {
-    QString chrome_path;
-    QString chrome_key_path;
-    QString yandex_path;
+    QString chrome_path_;
+    QString chrome_key_path_;
+    QString yandex_path_;
 
-    QString fileName;
+    QString out_file_name_;
 
 public:
     Worker();
     ~Worker();
 
     void run();
-    QString chooseBrowser(const QMap<Browser, QString> &installedBrowsersMap);
+    QString chooseBrowser(const QMap<Browser, QString> &installed_browsers_map);
 
     void handleGoogleChrome();
     void handleYandex();

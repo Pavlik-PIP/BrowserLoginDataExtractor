@@ -9,18 +9,18 @@
 
 Worker::Worker()
 {
-    QString pathStandardPart = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    QString standard_path_part = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
 
-    chrome_path = pathStandardPart + "\\Google\\Chrome\\User Data\\Default\\Login Data";
-    chrome_key_path = pathStandardPart + "\\Google\\Chrome\\User Data\\Local State";
-    yandex_path = pathStandardPart + "\\Yandex\\YandexBrowser\\User Data\\Default\\Ya Login Data";
+    chrome_path_ = standard_path_part + "\\Google\\Chrome\\User Data\\Default\\Login Data";
+    chrome_key_path_ = standard_path_part + "\\Google\\Chrome\\User Data\\Local State";
+    yandex_path_ = standard_path_part + "\\Yandex\\YandexBrowser\\User Data\\Default\\Ya Login Data";
 }
 
-QString Worker::chooseBrowser(const QMap<Browser, QString> &installedBrowsersMap)
+QString Worker::chooseBrowser(const QMap<Browser, QString> &installed_browsers_map)
 {
     console::qStdOut() << "Choose browser to extract from:" << endl;
 
-    QStringList values = installedBrowsersMap.values();
+    QStringList values = installed_browsers_map.values();
     for(int i = 0; i < values.size(); i++)
         console::qStdOut() << "    " << QString::number(i + 1) + " - " + values.at(i) << endl;
 
@@ -31,43 +31,43 @@ QString Worker::chooseBrowser(const QMap<Browser, QString> &installedBrowsersMap
         return nullptr;
     }
     bool ok;
-    int browserIndex = answer.toInt(&ok);
-    if(!ok || browserIndex <= 0 || browserIndex > values.size())
+    int browser_index = answer.toInt(&ok);
+    if(!ok || browser_index <= 0 || browser_index > values.size())
     {
         console::qStdErr() << "Error: invalid parameter passed: " << answer << endl;
         return nullptr;
     }
 
     if(answer.isEmpty())
-        browserIndex = 0;
+        browser_index = 0;
     else
-        browserIndex = --browserIndex;
+        browser_index = --browser_index;
 
-    return values.at(browserIndex);
+    return values.at(browser_index);
 }
 
 void Worker::run()
 {
     console::qStdOut() << "Command line app for extracting browser's login data to *.csv file" << endl << endl;
 
-    QMap<Browser, QString> installedBrowsersMap;
+    QMap<Browser, QString> installed_browsers_map;
     QFileInfo fileInfo;
 
-    fileInfo.setFile(chrome_path);
+    fileInfo.setFile(chrome_path_);
     if(fileInfo.exists())
-        installedBrowsersMap.insert(Browser::GoogleChrome, "Google Chrome");
-    fileInfo.setFile(yandex_path);
+        installed_browsers_map.insert(Browser::GoogleChrome, "Google Chrome");
+    fileInfo.setFile(yandex_path_);
     if(fileInfo.exists())
-        installedBrowsersMap.insert(Browser::Yandex, "Yandex browser");
+        installed_browsers_map.insert(Browser::Yandex, "Yandex browser");
 
-    if(!installedBrowsersMap.isEmpty())
+    if(!installed_browsers_map.isEmpty())
     {
-        QString browserName = chooseBrowser(installedBrowsersMap);
+        QString browserName = chooseBrowser(installed_browsers_map);
         if(browserName.isNull())
             return;
-        fileName = browserName + " passwords.csv";
+        out_file_name_ = browserName + " passwords.csv";
 
-        Browser browser = installedBrowsersMap.key(browserName);
+        Browser browser = installed_browsers_map.key(browserName);
 
         switch(browser)
         {
@@ -86,7 +86,7 @@ void Worker::run()
 void Worker::handleGoogleChrome()
 {
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "MainDB");
-    db.setDatabaseName(chrome_path);
+    db.setDatabaseName(chrome_path_);
 
     if(!db.open())
     {
@@ -94,7 +94,7 @@ void Worker::handleGoogleChrome()
         return;
     }
 
-    QFile json_file(chrome_key_path);
+    QFile json_file(chrome_key_path_);
 
     json_file.open(QFile::ReadOnly);
     QJsonDocument json_document = QJsonDocument::fromJson(json_file.readAll());
@@ -107,9 +107,9 @@ void Worker::handleGoogleChrome()
     encrypted_key = QByteArray::fromBase64(encrypted_key);
 
     // Key prefix for a key encrypted with DPAPI.
-    const QString DPAPIKeyPrefix = "DPAPI";
+    const QString DPAPI_key_prefix = "DPAPI";
 
-    encrypted_key = encrypted_key.remove(0, DPAPIKeyPrefix.size());
+    encrypted_key = encrypted_key.remove(0, DPAPI_key_prefix.size());
 
     QByteArray decrypted_key;
     if(!decryptDPAPI(encrypted_key, decrypted_key))
@@ -127,14 +127,14 @@ void Worker::handleGoogleChrome()
         return;
     }
 
-    QFile file(fileName);
+    QFile file(out_file_name_);
     QTextStream fout(&file);
 
     file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text);
     fout << "name,url,username,password" << endl;
 
     // Version prefix for data encrypted with profile bound key.
-    const QString EncryptionVersionPrefix = "v10";
+    const QString encryption_version_prefix = "v10";
 
     const int iv_length = 96 / 8; // 12
 
@@ -144,29 +144,30 @@ void Worker::handleGoogleChrome()
     {
         QByteArray encrypted_password = query.value(2).toByteArray();
 
-        encrypted_password = encrypted_password.remove(0, EncryptionVersionPrefix.size());
+        encrypted_password = encrypted_password.remove(0, encryption_version_prefix.size());
         int encrypted_password_length = encrypted_password.size() - (iv_length + auth_tag_length);
         QByteArray iv = encrypted_password.left(iv_length);
         QByteArray auth_tag = encrypted_password.right(auth_tag_length);
         encrypted_password = encrypted_password.mid(iv_length, encrypted_password_length);
 
+        QString line;
+        line.append(',');
+        line.append(query.value(0).toString() + ',');
+        line.append(query.value(1).toString() + ',');
+
         QByteArray decrypted_password;
         if(decryptAES_256_GSM(encrypted_password, decrypted_key, iv, auth_tag, decrypted_password))
-        {
-            QString line;
-            line.append(',');
-            line.append(query.value(0).toString() + ',');
-            line.append(query.value(1).toString() + ',');
             line.append(decrypted_password);
+        else
+            line.append("DECRYPTION_FAILED");
 
-            fout << line << endl;
-        }
+        fout << line << endl;
     }
     file.close();
 
     db.close();
 
-    console::qStdOut() << "File \"" << fileName << "\" has been successfully created" << endl;
+    console::qStdOut() << "File \"" << out_file_name_ << "\" has been successfully created" << endl;
 }
 
 void Worker::handleYandex()
@@ -174,15 +175,15 @@ void Worker::handleYandex()
 
 bool Worker::decryptDPAPI(const QByteArray &encrypted_data, QByteArray &decrypted_data)
 {
-    DATA_BLOB DataIn;
-    DATA_BLOB DataOut;
+    DATA_BLOB data_in;
+    DATA_BLOB data_out;
 
-    DataIn.pbData = const_cast<BYTE*>(reinterpret_cast<const BYTE*>(encrypted_data.data()));
-    DataIn.cbData = static_cast<DWORD>(encrypted_data.size());
+    data_in.pbData = const_cast<BYTE*>(reinterpret_cast<const BYTE*>(encrypted_data.data()));
+    data_in.cbData = static_cast<DWORD>(encrypted_data.size());
 
-    if(CryptUnprotectData(&DataIn, nullptr, nullptr, nullptr, nullptr, 0, &DataOut))
+    if(CryptUnprotectData(&data_in, nullptr, nullptr, nullptr, nullptr, 0, &data_out))
     {
-        decrypted_data = QByteArray::fromRawData(reinterpret_cast<const char*>(DataOut.pbData), static_cast<int>(DataOut.cbData));
+        decrypted_data = QByteArray::fromRawData(reinterpret_cast<const char*>(data_out.pbData), static_cast<int>(data_out.cbData));
         return true;
     }
     else
@@ -197,9 +198,12 @@ bool Worker::decryptAES_256_GSM(const QByteArray &encrypted_data,
 {
     unsigned char *ciphertext_data = reinterpret_cast<unsigned char*>(const_cast<char*>(encrypted_data.data()));
     int ciphertext_len = encrypted_data.size();
+
     unsigned char *key_data = reinterpret_cast<unsigned char*>(const_cast<char*>(key.data()));
+
     unsigned char *iv_data = reinterpret_cast<unsigned char*>(const_cast<char*>(initialization_vector.data()));
     int iv_len = initialization_vector.size();
+
     unsigned char *tag_data = reinterpret_cast<unsigned char*>(const_cast<char*>(authentication_tag.data()));
     int tag_len = authentication_tag.size();
 
@@ -224,10 +228,13 @@ bool Worker::decryptAES_256_GSM(const QByteArray &encrypted_data,
     }
 
     /* Set IV length. Not necessary if this is 12 bytes (96 bits) */
-    if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv_len, nullptr))
+    if(iv_len != 12)
     {
-        EVP_CIPHER_CTX_free(ctx);
-        return false;
+        if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv_len, nullptr))
+        {
+            EVP_CIPHER_CTX_free(ctx);
+            return false;
+        }
     }
 
     /* Initialise key and IV */
