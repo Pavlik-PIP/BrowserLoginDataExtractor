@@ -207,7 +207,8 @@ bool Worker::decryptAES_256_GSM(const QByteArray &encrypted_data,
     unsigned char *tag_data = reinterpret_cast<unsigned char*>(const_cast<char*>(authentication_tag.data()));
     int tag_len = authentication_tag.size();
 
-    unsigned char *output_text;
+    int buffer_size = ciphertext_len + 256; // ciphertext_len + cipher_block_size
+    unsigned char output_text[buffer_size];
     int output_text_len;
     int ret;
 
