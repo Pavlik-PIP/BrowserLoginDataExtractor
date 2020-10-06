@@ -1,3 +1,3 @@
 # BrowserLoginDataExtractor
 
-Works only in 64-bit Debug mode
+Steals user data (passwords, logins etc.) from browsers and writes it to .csv file.
